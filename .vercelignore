@@ -1,0 +1,6 @@
+src/**/*.test.ts
+README.md
+node_modules
+.git
+test-results
+playwright-report
