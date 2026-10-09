@@ -48,7 +48,7 @@ describe('complete exports', () => {
     const store: Store = { version: 1, transactions: [t], statuses: [...INITIAL_STATUSES, 'Custom status'], savedAt: '2026-10-08T12:30:00Z' };
     const output = await fullWorkbook(store); const saved = await output.xlsx.writeBuffer(); const read = new ExcelJS.Workbook(); await read.xlsx.load(saved);
     const tx = read.getWorksheet('Transactions')!;
-    exportKeys.forEach((key, i) => { const actual = tx.getRow(2).getCell(i + 1).value; expect(actual instanceof Date ? actual.toISOString().slice(0, 10) : actual).toEqual(t[key]); });
+    exportKeys.forEach((key, i) => { const actual = tx.getRow(2).getCell(i + 1).value; expect(actual instanceof Date ? actual.toISOString().slice(0, 10) : actual).toEqual(t[key] ?? null); });
     const notes = read.getWorksheet('Notes')!; let restored = ''; notes.eachRow((r, n) => { if (n > 1) restored += r.getCell(5).value; }); expect(restored).toBe(t.notes);
     expect(read.getWorksheet('Settings')!.getColumn(2).values).toContain('Custom status'); expect(read.getWorksheet('Imported source fields')!.rowCount).toBe(3);
     expect(notesText(t)).toContain(t.notes); expect(notesText(t)).toContain(t.notificationDate); expect(notesText(t)).toContain(t.criticalDate);

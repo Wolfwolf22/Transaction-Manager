@@ -1,4 +1,5 @@
 import Papa from 'papaparse';
+import { type NoteEntry, type ChecklistItem, type Comparable, type BcaSelection, type WorkspaceSettings, entriesOf, extensionErrors, migrateStore, validateSettings } from './workflow';
 
 export type Transaction = {
   id: string; name: string; iata: string; city: string; type: string; sqft: number;
@@ -8,8 +9,11 @@ export type Transaction = {
   plannedStart: string; plannedEnd: string; bcaDate: string; status: string; progress: number; notes: string;
   source: 'sample' | 'user';
   importData?: Record<string, string>;
+  noteEntries?: NoteEntry[]; checklist?: ChecklistItem[]; comparables?: Comparable[];
+  previousSqft?: number | null; previousOpex?: number | null; commitmentUsd?: number | null; termYears?: number | null;
+  bcaSelection?: BcaSelection; legacyProgress?: number;
 };
-export type Store = { version: 1; transactions: Transaction[]; statuses: string[]; savedAt: string };
+export type Store = { version: 1 | 2; transactions: Transaction[]; statuses: string[]; savedAt: string; settings?: WorkspaceSettings };
 export const STORAGE_KEY = 'dhl-tm-v1';
 export const INITIAL_STATUSES = ['Planning', 'In progress', 'Under review', 'Completed', 'On hold'];
 export const dateFields = ['notificationDate', 'criticalDate', 'expirationDate', 'plannedStart', 'plannedEnd', 'bcaDate'] as const;
@@ -74,25 +78,25 @@ export function validateTransaction(value: unknown, statuses: string[]): string[
   if (!!t.plannedStart !== !!t.plannedEnd) errors.push('Provide both planning dates, or leave both unset.');
   if (t.plannedEnd < t.plannedStart) errors.push('Planned finish must be on or after planned start.');
   if (t.name.length > 160 || t.notes.length > 50000) errors.push('Name or notes exceeds the supported length.');
-  return errors;
+  return [...errors, ...extensionErrors(t)];
 }
 export function validateStore(raw: unknown): raw is Store {
   if (!raw || typeof raw !== 'object') return false;
   const s = raw as Store;
-  return s.version === 1 && Array.isArray(s.statuses) && s.statuses.length > 0 && s.statuses.every(x => typeof x === 'string' && !!x.trim()) && new Set(s.statuses).size === s.statuses.length && Array.isArray(s.transactions) && s.transactions.length <= 5000 && s.transactions.every(t => validateTransaction(t, s.statuses).length === 0) && new Set(s.transactions.map(t => t.id)).size === s.transactions.length;
+  return (s.version === 1 || s.version === 2 && validateSettings(s.settings)) && typeof s.savedAt === 'string' && Array.isArray(s.statuses) && s.statuses.length > 0 && s.statuses.every(x => typeof x === 'string' && !!x.trim()) && new Set(s.statuses).size === s.statuses.length && Array.isArray(s.transactions) && s.transactions.length <= 5000 && s.transactions.every(t => validateTransaction(t, s.statuses).length === 0) && new Set(s.transactions.map(t => t.id)).size === s.transactions.length;
 }
 export function loadStore(): { store: Store; error: string } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) { const parsed: unknown = JSON.parse(raw); if (!validateStore(parsed)) throw new Error('Invalid saved data'); return { store: parsed, error: '' }; }
-  } catch { return { store: { version: 1, transactions: [], statuses: INITIAL_STATUSES, savedAt: '' }, error: 'Saved data could not be read. It has been preserved. Export the stored data or restore a valid backup in Settings before editing.' }; }
-  return { store: { version: 1, transactions: sampleTransactions(), statuses: INITIAL_STATUSES, savedAt: '' }, error: '' };
+    if (raw) { const parsed: unknown = JSON.parse(raw); if (!validateStore(parsed)) throw new Error('Invalid saved data'); return { store: migrateStore(parsed), error: '' }; }
+  } catch { return { store: migrateStore({ version: 1, transactions: [], statuses: INITIAL_STATUSES, savedAt: '' }), error: 'Saved data could not be read. It has been preserved. Export the stored data or restore a valid backup in Settings before editing.' }; }
+  return { store: migrateStore({ version: 1, transactions: sampleTransactions(), statuses: INITIAL_STATUSES, savedAt: '' }), error: '' };
 }
 export const money = (v: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v);
 export const compactMoney = (v: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 }).format(v);
 export const number = (v: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(v);
 export function notesText(t: Transaction) {
-  return `${t.iata} | ${t.name}\n${t.city}\nStatus: ${t.status}\nNotification date: ${t.notificationDate}\nCritical date: ${t.criticalDate}\nExpiration date: ${t.expirationDate}\nSource: ${t.source === 'sample' ? 'SYNTHETIC SAMPLE' : 'User-entered'}\n\nNOTES\n${t.notes || '(No notes)'}\n`;
+  return `${t.iata} | ${t.name}\n${t.city}\nStatus: ${t.status}\nNotification date: ${t.notificationDate}\nCritical date: ${t.criticalDate}\nExpiration date: ${t.expirationDate}\nSource: ${t.source === 'sample' ? 'SYNTHETIC SAMPLE' : 'User-entered'}\n\nNOTES\n${entriesOf(t).map(n => `[${n.deletedAt ? 'DELETED ' + n.deletedAt : 'ACTIVE'}] Created: ${n.createdAt || 'Unknown (legacy note)'}${n.migratedAt ? '\nMigrated: ' + n.migratedAt : ''}${n.updatedAt ? '\nEdited: ' + n.updatedAt : ''}\n${n.text}${n.history.map(h => '\nPrevious text before ' + h.editedAt + ':\n' + h.text).join('')}`).join('\n\n') || '(No notes)'}\n`;
 }
 export function download(filename: string, content: string, type = 'text/plain;charset=utf-8') {
   const url = URL.createObjectURL(new Blob([content], { type })); const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
