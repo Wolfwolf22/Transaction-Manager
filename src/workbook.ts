@@ -12,27 +12,28 @@ export async function fullWorkbook(store: Store) {
     row.getCell(exportKeys.length + 1).numFmt = '"$"#,##0.00';
   }
   const notes = book.addWorksheet('Notes', { views: [{ state: 'frozen', ySplit: 1 }] });
-  notes.addRow(['Transaction ID', 'IATA', 'Transaction name', 'Part', 'Complete note text (join parts without separators)', 'Note ID', 'Created timestamp (UTC)', 'Migrated timestamp (UTC)', 'Edited timestamp (UTC)', 'Deleted timestamp (UTC)', 'Original date status']);
+  notes.addRow(['Transaction ID', 'IATA', 'Transaction name', 'Part', 'Complete note text (join parts without separators)', 'Note ID', 'Created timestamp (UTC)', 'Migrated timestamp (UTC)', 'Edited timestamp (UTC)', 'Deleted timestamp (UTC)', 'Original date status', 'Reviewed timestamp (UTC)', 'Reviewed note version']);
   const history = book.addWorksheet('Note history'); history.addRow(['Transaction ID','Note ID','Version','Part','Previous text','Edited timestamp (UTC)']);
   for (const t of store.transactions) for (const n of entriesOf(t)) {
-    for (let start=0;start<Math.max(n.text.length,1);start+=30000) notes.addRow([t.id,t.iata,t.name,start/30000+1,n.text.slice(start,start+30000),n.id,n.createdAt||'',n.migratedAt||'',n.updatedAt||'',n.deletedAt||'',n.createdAt?'Recorded':'Unknown original date']);
+    for (let start=0;start<Math.max(n.text.length,1);start+=30000) notes.addRow([t.id,t.iata,t.name,start/30000+1,n.text.slice(start,start+30000),n.id,n.createdAt||'',n.migratedAt||'',n.updatedAt||'',n.deletedAt||'',n.createdAt?'Recorded':'Unknown original date',n.reviewedAt||'',n.reviewedVersion||'']);
     n.history.forEach((h,i)=>{for(let start=0;start<Math.max(h.text.length,1);start+=30000)history.addRow([t.id,n.id,i+1,start/30000+1,h.text.slice(start,start+30000),h.editedAt]);});
   }
-  const checklist=book.addWorksheet('Checklists'); checklist.addRow(['Transaction ID','Item ID','Item','Completed','Derived progress (%)']);
+  const checklist=book.addWorksheet('Checklists'); checklist.addRow(['Transaction ID','Item ID','Item','Completed','Derived progress (%)','Due date','Owner','Completed timestamp (UTC)']);
   const comparable=book.addWorksheet('Market comparables'); comparable.addRow(['Transaction ID','Comparable ID','Address','Annual USD / sq ft','Annual EUR / sq ft']);
-  for(const t of store.transactions){for(const c of t.checklist||[])checklist.addRow([t.id,c.id,c.text,c.done,effectiveProgress(t)]);for(const c of t.comparables||[])comparable.addRow([t.id,c.id,c.address,c.annualPsfUsd,eur(c.annualPsfUsd,settingsOf(store).usdToEur)]);}
+  for(const t of store.transactions){for(const c of t.checklist||[])checklist.addRow([t.id,c.id,c.text,c.done,effectiveProgress(t),c.dueDate||'',c.owner||'',c.completedAt||'']);for(const c of t.comparables||[])comparable.addRow([t.id,c.id,c.address,c.annualPsfUsd,eur(c.annualPsfUsd,settingsOf(store).usdToEur)]);}
   const rules=book.addWorksheet('BCA rules'); rules.addRow(['Year','Source','Revision','Routing confirmed','Rule ID','Level','Label','EUR operator','Commitment EUR','Term operator','Years','Approvers','Submission stage','Routing policy','Caveats']);
   const calendars=book.addWorksheet('BCA calendars'); calendars.addRow(['Year','Cycle ID','Label','Regional submission','NorAm meeting','GHO submission','Global meeting','Note']);
   for(const y of settingsOf(store).bcaYears){for(const r of y.rules)rules.addRow([y.year,y.source,y.revision,y.routingConfirmed,r.id,r.level,r.label,r.amountOperator,r.amountEur,r.termOperator,r.termYears,r.approvers,r.submissionStage,y.routingPolicy,y.caveats]);for(const c of y.cycles)calendars.addRow([y.year,c.id,c.label,c.regional,c.regionalMeeting,c.gho,c.globalMeeting,c.note]);}
+  const activity=book.addWorksheet('Workspace activity');activity.addRow(['Event ID','Timestamp (UTC)','Transaction ID','Summary','Changed fields']);for(const event of store.activity||[])activity.addRow([event.id,event.at,event.transactionId,event.summary,event.fields.join(', ')]);
   const json=book.addWorksheet('Complete workspace JSON');json.addRow(['Part','Exact backup JSON (join parts without separators)']);const serialized=JSON.stringify(store);for(let start=0;start<serialized.length;start+=30000)json.addRow([start/30000+1,serialized.slice(start,start+30000)]);
   const settings = book.addWorksheet('Settings'); settings.addRows([['Setting', 'Value'], ['Schema version', store.version], ['Corporate exchange rate (EUR per USD)', settingsOf(store).usdToEur], ['BCA warning window (days)', settingsOf(store).bcaWarningDays], ['Workspace saved at', store.savedAt], ['Exported at', new Date().toISOString()], ['Business timezone', 'America/New_York'], ['Persistence', 'Browser-local; no shared backend'], ['Annual base rent', 'Area × current annual price per square foot; operating expenses excluded'], ['Notes', 'All characters preserved in Notes, split only for Excel cell length limits'], ...store.statuses.map((s, i) => [`Status option ${i + 1}`, s])]);
   const imported = book.addWorksheet('Imported source fields'); imported.addRow(['Transaction ID', 'IATA', 'Source column', 'Part', 'Original imported value (join parts in order)']);
   for (const t of store.transactions) for (const [key, value] of Object.entries(t.importData || {})) for (let start = 0; start < Math.max(value.length, 1); start += 30000) imported.addRow([t.id, t.iata, key, start / 30000 + 1, value.slice(start, start + 30000)]);
   for (const sheet of book.worksheets) {
-    sheet.getRow(1).height = 34; sheet.getRow(1).font = { bold: true, color: { argb: 'FF26352E' }, size: 11 };
+    sheet.getRow(1).height = 34; sheet.getRow(1).font = { bold: true, color: { argb: 'FF24272D' }, size: 11 };
     sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFCC00' } };
     sheet.columns.forEach((c, i) => { c.width = sheet.name === 'Notes' || sheet.name === 'Imported source fields' ? [38, 10, 40, 10, 110][i] || 28 : sheet.name === 'Settings' ? [32, 110][i] : i === 0 ? 38 : i === 2 ? 44 : 24; });
-    sheet.eachRow((row, index) => { row.alignment = { vertical: 'top', wrapText: true }; if (index > 1) { row.font = { name: 'Calibri', size: 11 }; row.height = sheet.name === 'Notes' ? 110 : 32; if (index % 2 === 0) row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F6EF' } }; } });
+    sheet.eachRow((row, index) => { row.alignment = { vertical: 'top', wrapText: true }; if (index > 1) { row.font = { name: 'Calibri', size: 11 }; row.height = sheet.name === 'Notes' ? 110 : 32; if (index % 2 === 0) row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF4F6F8' } }; } });
     sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: sheet.rowCount, column: sheet.columnCount } };
   }
   return book;

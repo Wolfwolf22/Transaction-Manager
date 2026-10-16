@@ -1,4 +1,5 @@
 import Papa from 'papaparse';
+import type { ActivityEvent } from './executive';
 import { type NoteEntry, type ChecklistItem, type Comparable, type BcaSelection, type WorkspaceSettings, entriesOf, extensionErrors, migrateStore, validateSettings } from './workflow';
 
 export type Transaction = {
@@ -13,7 +14,7 @@ export type Transaction = {
   previousSqft?: number | null; previousOpex?: number | null; commitmentUsd?: number | null; termYears?: number | null;
   bcaSelection?: BcaSelection; legacyProgress?: number;
 };
-export type Store = { version: 1 | 2; transactions: Transaction[]; statuses: string[]; savedAt: string; settings?: WorkspaceSettings };
+export type Store = { version: 1 | 2 | 3; workspaceId?: string; revision?: string; trackingSince?: string; activity?: ActivityEvent[]; transactions: Transaction[]; statuses: string[]; savedAt: string; settings?: WorkspaceSettings };
 export const STORAGE_KEY = 'dhl-tm-v1';
 export const INITIAL_STATUSES = ['Planning', 'In progress', 'Under review', 'Completed', 'On hold'];
 export const dateFields = ['notificationDate', 'criticalDate', 'expirationDate', 'plannedStart', 'plannedEnd', 'bcaDate'] as const;
@@ -83,7 +84,7 @@ export function validateTransaction(value: unknown, statuses: string[]): string[
 export function validateStore(raw: unknown): raw is Store {
   if (!raw || typeof raw !== 'object') return false;
   const s = raw as Store;
-  return (s.version === 1 || s.version === 2 && validateSettings(s.settings)) && typeof s.savedAt === 'string' && Array.isArray(s.statuses) && s.statuses.length > 0 && s.statuses.every(x => typeof x === 'string' && !!x.trim()) && new Set(s.statuses).size === s.statuses.length && Array.isArray(s.transactions) && s.transactions.length <= 5000 && s.transactions.every(t => validateTransaction(t, s.statuses).length === 0) && new Set(s.transactions.map(t => t.id)).size === s.transactions.length;
+  return (s.version === 1 || (s.version === 2 || s.version === 3) && validateSettings(s.settings)) && typeof s.savedAt === 'string' && (s.version !== 3 || typeof s.workspaceId === 'string' && !!s.workspaceId && typeof s.revision === 'string' && !!s.revision && typeof s.trackingSince === 'string' && Number.isFinite(Date.parse(s.trackingSince)) && Array.isArray(s.activity) && s.activity.every(e => e && typeof e.id === 'string' && typeof e.transactionId === 'string' && typeof e.summary === 'string' && typeof e.at === 'string' && Number.isFinite(Date.parse(e.at)) && Array.isArray(e.fields) && e.fields.every(f => typeof f === 'string'))) && Array.isArray(s.statuses) && s.statuses.length > 0 && s.statuses.every(x => typeof x === 'string' && !!x.trim()) && new Set(s.statuses).size === s.statuses.length && Array.isArray(s.transactions) && s.transactions.length <= 5000 && s.transactions.every(t => validateTransaction(t, s.statuses).length === 0) && new Set(s.transactions.map(t => t.id)).size === s.transactions.length;
 }
 export function loadStore(): { store: Store; error: string } {
   try {
@@ -96,7 +97,7 @@ export const money = (v: number) => new Intl.NumberFormat('en-US', { style: 'cur
 export const compactMoney = (v: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 }).format(v);
 export const number = (v: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(v);
 export function notesText(t: Transaction) {
-  return `${t.iata} | ${t.name}\n${t.city}\nStatus: ${t.status}\nNotification date: ${t.notificationDate}\nCritical date: ${t.criticalDate}\nExpiration date: ${t.expirationDate}\nSource: ${t.source === 'sample' ? 'SYNTHETIC SAMPLE' : 'User-entered'}\n\nNOTES\n${entriesOf(t).map(n => `[${n.deletedAt ? 'DELETED ' + n.deletedAt : 'ACTIVE'}] Created: ${n.createdAt || 'Unknown (legacy note)'}${n.migratedAt ? '\nMigrated: ' + n.migratedAt : ''}${n.updatedAt ? '\nEdited: ' + n.updatedAt : ''}\n${n.text}${n.history.map(h => '\nPrevious text before ' + h.editedAt + ':\n' + h.text).join('')}`).join('\n\n') || '(No notes)'}\n`;
+  return `${t.iata} | ${t.name}\n${t.city}\nStatus: ${t.status}\nNotification date: ${t.notificationDate}\nCritical date: ${t.criticalDate}\nExpiration date: ${t.expirationDate}\nSource: ${t.source === 'sample' ? 'SYNTHETIC SAMPLE' : 'User-entered'}\n\nNOTES\n${entriesOf(t).map(n => `[${n.deletedAt ? 'DELETED ' + n.deletedAt : 'ACTIVE'}] Created: ${n.createdAt || 'Unknown (legacy note)'}${n.migratedAt ? '\nMigrated: ' + n.migratedAt : ''}${n.updatedAt ? '\nEdited: ' + n.updatedAt : ''}${n.reviewedAt ? '\nReviewed: ' + n.reviewedAt : ''}\n${n.text}${n.history.map(h => '\nPrevious text before ' + h.editedAt + ':\n' + h.text).join('')}`).join('\n\n') || '(No notes)'}\n`;
 }
 export function download(filename: string, content: string, type = 'text/plain;charset=utf-8') {
   const url = URL.createObjectURL(new Blob([content], { type })); const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);

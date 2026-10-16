@@ -1,4 +1,5 @@
 src/**/*.test.ts
+src/**/*.test.tsx
 README.md
 node_modules
 .git

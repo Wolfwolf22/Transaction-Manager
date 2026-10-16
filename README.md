@@ -1,6 +1,16 @@
-# DHL Transaction Manager — Revision 2
+# DHL Transaction Manager — Revision 3
 
 Browser-local corporate real estate workspace built with React, TypeScript and Vite. Public code and deployments contain synthetic transactions only. Internal BCA policy and calendar values are supplied separately as a local settings file.
+
+## Executive workflow
+
+The overview prioritizes saved overdue commitments, global/corporate BCA, next-seven-day work, owner/data gaps and unreviewed notes. Every queue item opens its transaction section. The full queue filters priority, overdue, next week, global BCA, checklist tasks and missing data; search includes owners. Portfolio metrics show count, area, known annual base rent and unreviewed notes. Stage counts and checklist readiness are separate: completion never implies approval. Passed planned finishes and fixed-date conflicts are evidence-based schedule flags, not inferred negotiation risk.
+
+The map uses local US geography with IATA labels. Optional illustrative connections are off by default. Saved activity starts with v3 saves; no historical changes are invented.
+
+Weekly Review groups active notes by transaction with unreviewed/recent/all filters. Opening a note never marks it reviewed. Explicit review saves immediately; a later edit invalidates that review. Weekly Report previews and downloads a summary, overdue/next-seven-day actions, global BCA, transaction progress, recent/unreviewed notes, missing fields and stable record links. Samples are excluded unless explicitly included. Previewing never marks notes reviewed or creates a sent baseline. Without a verified sent snapshot, material changes are unavailable.
+
+Hosted reporting is **inactive**. No Supabase, Resend, shared-data upload or email-sending integration is included in the public build. The requested Monday 08:00 America/New_York schedule requires separately approved provider setup, access rules, sender verification, data migration and activation. The local implementation proposal is intentionally outside this public repository. A Gmail connector is not a server credential.
 
 ## Transaction pages
 
@@ -10,7 +20,7 @@ Financial inputs remain USD. Set a chosen **EUR per USD** corporate exchange rat
 
 Market comparables have editable addresses and annual USD per sq ft, dual currency/area displays and differences from the proposed rate. Checklist completion controls progress; an empty checklist has no percentage. Migrated manual progress is preserved separately. Individual notes retain creation time, edited time and prior text; deletion is recoverable. Legacy notes have an unknown original creation time plus a migration timestamp. Times display in New York and export in UTC.
 
-Save explicitly. Pending notes, checklist items and comparable drafts must be added or discarded before saving. Navigation warns about unsaved changes.
+Transaction fields, checklist changes and comparables save with **Save transaction**. Existing-record notes save independently with **Save note** or **Save note edit**; reviewing, deleting and restoring notes also save immediately. Each save is read back for confirmation. A storage failure keeps the draft, and unfinished note drafts recover on reopening in the same browser. Original timestamps and prior versions are protected by persistence checks. A new transaction must be saved before adding notes. Pending drafts must be saved or discarded before the overall transaction save. Navigation warns about unsaved transaction edits. Checklist actions now include due date, owner and completion time.
 
 ## BCA setup
 
@@ -57,28 +67,31 @@ Map coordinates can be entered manually or set by clicking the interactive detai
 The top-bar **Export all** action downloads an Excel workbook independent of the import layout:
 
 - **Transactions:** every current transaction field, current/previous annual pricing, operating expenses, location, all six date fields, BCA deadline, progress, status, business ownership, option terms and derived annual base rent.
-- **Notes / Note history:** complete entries, original/edited/deleted timestamps and previous text, linked by transaction and note IDs. Text exceeding Excel's cell limit is split into ordered 30,000-character parts.
-- **Checklists / Market comparables:** every editable item, completion state, property and rate.
+- **Notes / Note history:** complete entries, original/edited/deleted/reviewed timestamps, reviewed version and previous text, linked by transaction and note IDs. Text exceeding Excel's cell limit is split into ordered 30,000-character parts.
+- **Checklists / Market comparables:** every editable item, due date, owner, completion time/state, property and rate.
 - **BCA rules / BCA calendars:** saved annual thresholds, stages, dates, source traces and caveats.
+- **Workspace activity:** saved v3 change summaries, timestamps and transaction references.
 - **Settings:** status options, manual exchange rate, warning window, schema version, timestamps and interpretation notes.
 - **Complete workspace JSON:** exact serialized backup split into ordered parts, preserving every field.
 - **Imported source fields:** every original imported column and value, linked by transaction ID, including columns that have no dashboard mapping.
 
-Each transaction additionally has a notes-only text export including history. Settings provides a complete JSON backup and validated v1/v2 restore. XLSX is a readable full export; use JSON for direct workspace restoration.
+Each transaction additionally has a notes-only text export including history. Settings provides a complete JSON backup and validated v1/v2/v3 restore. XLSX is a readable full export; use JSON for direct workspace restoration.
 
-Data belongs to the exact website origin. To move from an older preview address, export its JSON backup in Settings, then restore it at the current preview. Keep using the stable preview address. On the same origin, valid v1 storage migrates in memory and is saved as v2 on the next save; the original raw v1 data is copied to a separate browser backup key before writing. Original fields and notes are preserved without invented historical timestamps.
+Data belongs to the exact website origin. To move from an older preview address, export its JSON backup in Settings, then restore it at the current preview. Keep using the stable preview address. On the same origin, valid v1/v2 storage migrates in memory and is saved as v3 on the next save. The browser storage key remains `dhl-tm-v1`. The previous valid snapshot is retained as a recovery copy when space permits, and the first raw legacy snapshot is archived separately. Failure to store a redundant backup does not prevent the primary save. Atomic primary-write failures leave the original saved value intact. Original fields and notes are preserved without invented historical timestamps.
 
 ## Persistence and scope
 
-All edits are stored in this browser's localStorage. They are not shared between devices, browsers, website origins or users. Storage failures are reported, corrupt saved data is preserved, and backup restore asks before replacement. Cross-tab stale transaction saves are blocked. There is no authentication, shared database, background reminder service or lease-attachment feature. Note history is editable local data, not an immutable audit log.
+All edits are stored in this browser's localStorage. They are not shared between devices, browsers, website origins or users. Storage failures are reported, corrupt saved data is preserved, and backup restore asks before replacement. Cross-tab stale transaction, note and settings saves are blocked using workspace revisions and original-record comparison. The report preview reads saved records only. There is no authentication, shared database, background reminder service or lease-attachment feature. Note history is editable local data, not an immutable audit log.
 
 Use synthetic data for public demonstrations. Before entering confidential production data, add organizational authentication, shared storage, authorization, audit history and operational backups. Export backups to avoid losing browser-local work.
 
 ## Verification
 
-The 17 automated tests cover date-only behavior across timezones/DST, fixed deadlines during planning shifts, import validation and source columns, v1 migration and malformed nested data, area/currency math, checklist progress, overlapping/missing/confirmed BCA routes, calendar changes and exact XLSX save/reopen recovery including long notes, edited/deleted history, settings and every added field.
+Revision 3 has 36 passing automated tests, including the previous 17 regression tests. Synthetic component tests cover independent note persistence/reload, unsaved transaction-field preservation, immutable note timestamps, history, review invalidation, recoverable deletion, draft recovery, failed/stale saves, explicit weekly review and report navigation. Model tests cover v1/v2/v3 migration, storage quotas and revision conflicts, action ordering/ownership, New York day boundaries, report sample exclusion and baseline provenance, and exact Excel recovery of all extensions.
 
-Separate local tests verify the provided workbook and BCA configuration without retaining their contents in the repository; both source hashes remain unchanged. Browser checks cover full-page routing, save/reload persistence, pending-note protection, timestamped edits, checklist completion, manual currency conversion, editable calendar propagation, high-priority warnings, fixed BCA dates during planner keyboard movement and interactive maps. The first version also passed actual pointer-drag and download verification; download automation is not a revision release gate because workbook contents are tested directly.
+Two private local source-compatibility tests pass without copying internal workbook or BCA rows into this repository. The production build passes and npm audit reports zero vulnerabilities after updating the test runner and the ExcelJS UUID dependency. ExcelJS remains dynamically loaded for exports/imports; its isolated workbook bundle still exceeds Vite's advisory chunk-size threshold.
+
+**Current visual/browser verification was unavailable.** Computer control stopped with this exact restriction: “Computer Use has been stopped for this turn because it could not determine the current browser URL on Windows with enough confidence to enforce policy. Stop your work and send a final message noting why Computer Use ended.” No alternative browser-control or screenshot mechanism was used. Earlier revision browser checks are not evidence for revision 3's appearance. Component tests and build checks do not replace a current visual review. Today's live browser records were not inspected or reset.
 
 ## Geography attribution
 
