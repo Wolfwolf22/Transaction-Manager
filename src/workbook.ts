@@ -18,9 +18,13 @@ export async function fullWorkbook(store: Store) {
     for (let start=0;start<Math.max(n.text.length,1);start+=30000) notes.addRow([t.id,t.iata,t.name,start/30000+1,n.text.slice(start,start+30000),n.id,n.createdAt||'',n.migratedAt||'',n.updatedAt||'',n.deletedAt||'',n.createdAt?'Recorded':'Unknown original date',n.reviewedAt||'',n.reviewedVersion||'']);
     n.history.forEach((h,i)=>{for(let start=0;start<Math.max(h.text.length,1);start+=30000)history.addRow([t.id,n.id,i+1,start/30000+1,h.text.slice(start,start+30000),h.editedAt]);});
   }
-  const checklist=book.addWorksheet('Checklists'); checklist.addRow(['Transaction ID','Item ID','Item','Completed','Derived progress (%)','Due date','Owner','Completed timestamp (UTC)']);
+  const checklist = book.addWorksheet('Checklists', { views: [{ state: 'frozen', ySplit: 1 }] });
+  checklist.addRow(['Transaction ID', 'Item ID', 'Item', 'Completed', 'Derived progress (%)', 'Due date', 'Owner', 'Completed timestamp (UTC)', 'Checklist item note']);
   const comparable=book.addWorksheet('Market comparables'); comparable.addRow(['Transaction ID','Comparable ID','Address','Annual USD / sq ft','Annual EUR / sq ft']);
-  for(const t of store.transactions){for(const c of t.checklist||[])checklist.addRow([t.id,c.id,c.text,c.done,effectiveProgress(t),c.dueDate||'',c.owner||'',c.completedAt||'']);for(const c of t.comparables||[])comparable.addRow([t.id,c.id,c.address,c.annualPsfUsd,eur(c.annualPsfUsd,settingsOf(store).usdToEur)]);}
+  for (const t of store.transactions) {
+    for (const c of t.checklist || []) checklist.addRow([t.id, c.id, c.text, c.done, effectiveProgress(t), c.dueDate || '', c.owner || '', c.completedAt || '', c.note || '']);
+    for (const c of t.comparables || []) comparable.addRow([t.id, c.id, c.address, c.annualPsfUsd, eur(c.annualPsfUsd, settingsOf(store).usdToEur)]);
+  }
   const rules=book.addWorksheet('BCA rules'); rules.addRow(['Year','Source','Revision','Routing confirmed','Rule ID','Level','Label','EUR operator','Commitment EUR','Term operator','Years','Approvers','Submission stage','Routing policy','Caveats']);
   const calendars=book.addWorksheet('BCA calendars'); calendars.addRow(['Year','Cycle ID','Label','Regional submission','NorAm meeting','GHO submission','Global meeting','Note']);
   for(const y of settingsOf(store).bcaYears){for(const r of y.rules)rules.addRow([y.year,y.source,y.revision,y.routingConfirmed,r.id,r.level,r.label,r.amountOperator,r.amountEur,r.termOperator,r.termYears,r.approvers,r.submissionStage,y.routingPolicy,y.caveats]);for(const c of y.cycles)calendars.addRow([y.year,c.id,c.label,c.regional,c.regionalMeeting,c.gho,c.globalMeeting,c.note]);}
@@ -36,6 +40,7 @@ export async function fullWorkbook(store: Store) {
     sheet.eachRow((row, index) => { row.alignment = { vertical: 'top', wrapText: true }; if (index > 1) { row.font = { name: 'Calibri', size: 11 }; row.height = sheet.name === 'Notes' ? 110 : 32; if (index % 2 === 0) row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF4F6F8' } }; } });
     sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: sheet.rowCount, column: sheet.columnCount } };
   }
+  checklist.getColumn(9).width = 60;
   return book;
 }
 export async function exportWorkbook(store: Store) {

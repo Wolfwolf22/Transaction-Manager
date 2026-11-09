@@ -93,35 +93,74 @@
   color: var(--muted);
 }
 
-#section-checklist {
-  container-type: inline-size;
-}
+/* Checklist items */
+.checklist-template-action { margin: 13px 0; }
 
 .transaction-page .checklist-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 9px;
   border-color: var(--line);
   background: #faf8f1;
 }
 
-@container (min-width: 24rem) {
-  .transaction-page .checklist-item {
-    grid-template-columns: 20px repeat(2, minmax(0, 1fr)) 32px;
-    align-items: end;
-  }
+.transaction-page .checklist-item.is-complete { border-color: #c8d7c8; }
 
-  .transaction-page .checklist-item > input:nth-child(2) {
-    grid-column: 2 / 4;
-  }
+.checklist-item-head {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 8px;
+}
 
-  .transaction-page .checklist-item > .task-due-label {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
-  }
+.checklist-item-head input[type="checkbox"] { margin: 0; }
+.checklist-item-head input:not([type="checkbox"]) { width: 100%; font-weight: 650; }
+.checklist-item-head .icon-button { width: 34px; height: 34px; }
 
-  .transaction-page .checklist-item > input:nth-child(4) {
-    grid-column: 3;
-    grid-row: 2;
-  }
+.checklist-item-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+#section-checklist .checklist-item-fields label { gap: 4px; font-size: .76rem; color: var(--muted); }
+.checklist-item-fields input { width: 100%; }
+
+.checklist-checked {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  color: #355c43;
+  font-size: .78rem;
+}
+
+.checklist-item-note summary {
+  padding: 5px 0;
+  color: var(--ink);
+  font-size: .81rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.checklist-item-note summary svg { vertical-align: -.15em; }
+.checklist-item-note textarea { margin-top: 6px; font-size: .85rem; }
+.checklist-item-note[open] + .checklist-note-preview { display: none; }
+.checklist-note-preview { color: var(--muted); font-size: .83rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.checklist-template-panel .checklist-items { margin-bottom: 12px; }
+
+.checklist-template-row {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.checklist-template-row > span { color: var(--muted); font-size: .82rem; }
+
+@media (max-width: 450px) {
+  .checklist-item-fields { grid-template-columns: minmax(0, 1fr); }
 }
 
 .table-scroll .transactions-table {

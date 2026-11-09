@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
 import { INITIAL_STATUSES, sampleTransactions, shiftPlan, validateStore, validateTransaction, notesText, type Store, type Transaction } from './model';
-import { bcaFor, costs, defaultSettings, difference, eur, migrateStore, matchingRules, normalizeTransaction, progressOf, squareMeters, perSquareMeter, validateSettings, type BcaYear } from './workflow';
+import { bcaFor, CHECKLIST_NOTE_LIMIT, checklistFromTemplate, costs, defaultSettings, difference, eur, migrateStore, matchingRules, normalizeTransaction, progressOf, settingsOf, squareMeters, perSquareMeter, validateSettings, type BcaYear } from './workflow';
 import { fullWorkbook } from './workbook';
 
 // Deliberately synthetic test rules; no internal policy values or calendars.
@@ -46,6 +46,72 @@ describe('area, currency and completion', () => {
     expect(progressOf({...t,checklist:t.checklist.slice(0,1)})).toBe(100); expect(progressOf({...t,checklist:[]})).toBeNull();
   });
 });
+describe('checklist templates and notes', () => {
+  const savedItem = {
+    id: 'existing-checklist-item',
+    text: '  Confirm terms  ',
+    done: true,
+    completedAt: '2026-10-08T12:00:00Z',
+    dueDate: '2026-10-09',
+    owner: 'Example reviewer',
+    note: 'First line\nFollow-up details',
+  };
+
+  it('appends only missing titles and preserves completed items and notes', () => {
+    const existing = [savedItem];
+    const template = ['confirm TERMS', '   ', '  Review lease  ', 'REVIEW LEASE', 'Confirm signatures'];
+    const result = checklistFromTemplate(existing, template);
+
+    expect(result[0]).toBe(savedItem);
+    expect(result.slice(1)).toMatchObject([
+      { text: 'Review lease', done: false },
+      { text: 'Confirm signatures', done: false },
+    ]);
+    expect(new Set(result.map(item => item.id)).size).toBe(3);
+    expect(existing).toEqual([savedItem]);
+    expect(checklistFromTemplate(result, template)).toBe(result);
+  });
+
+  it('provides an empty template when an older workspace has no saved template', () => {
+    const olderSettings = { usdToEur: 0.8, bcaWarningDays: 30, bcaYears: [config()] };
+    const original: Store = { ...legacy(), version: 2, settings: olderSettings };
+    const migrated = migrateStore(original);
+
+    expect(validateStore(original)).toBe(true);
+    expect(validateStore(migrated)).toBe(true);
+    expect(settingsOf(migrated).checklistTemplate).toEqual([]);
+    expect(migrated.settings).toEqual(olderSettings);
+  });
+
+  it('preserves configured labels, checklist notes and completion timestamps through migration and normalization', () => {
+    const original: Store = {
+      ...legacy(),
+      settings: { ...settings(), checklistTemplate: ['Confirm terms', 'Review lease'] },
+      transactions: [{ ...transaction(), checklist: [savedItem] }],
+    };
+    const migrated = migrateStore(original);
+    const normalized = normalizeTransaction(migrated.transactions[0]);
+
+    expect(validateStore(migrated)).toBe(true);
+    expect(settingsOf(migrated).checklistTemplate).toEqual(original.settings?.checklistTemplate);
+    expect(normalized.checklist).toEqual([savedItem]);
+    expect(normalized.progress).toBe(100);
+  });
+
+  it('rejects malformed templates and enforces text and length limits on item notes', () => {
+    expect(validateSettings({ ...settings(), checklistTemplate: ['Confirm terms'] })).toBe(true);
+    for (const template of [null, 'Confirm terms', [1], ['   '], ['Confirm terms', '  confirm TERMS  ']]) {
+      expect(validateSettings({ ...settings(), checklistTemplate: template })).toBe(false);
+      expect(validateStore({ ...legacy(), settings: { ...settings(), checklistTemplate: template } })).toBe(false);
+    }
+    const valid = { ...transaction(), checklist: [{ ...savedItem, note: 'a'.repeat(CHECKLIST_NOTE_LIMIT) }] };
+    expect(validateTransaction(valid, INITIAL_STATUSES)).toEqual([]);
+    for (const note of [1, 'a'.repeat(CHECKLIST_NOTE_LIMIT + 1)]) {
+      const invalid = { ...transaction(), checklist: [{ ...savedItem, note }] };
+      expect(validateTransaction(invalid, INITIAL_STATUSES)).not.toEqual([]);
+    }
+  });
+});
 describe('BCA rules and fixed deadlines', () => {
   it('resolves one confirmed rule using amount AND term and the chosen cycle', () => {
     const t=transaction(), s=settings(), result=bcaFor(t,s,'2030-06-01');
@@ -78,13 +144,16 @@ describe('BCA rules and fixed deadlines', () => {
 });
 describe('complete revision 2 exports', () => {
   it('round-trips note history, deleted notes, settings, BCA assignments, checklist and market inputs', async () => {
-    const t={...transaction(),noteEntries:[{id:'note-a',text:'Edited note\n'+'A'.repeat(32000),createdAt:'2026-10-08T12:00:00Z',updatedAt:'2026-10-08T13:00:00Z',deletedAt:'2026-10-08T14:00:00Z',history:[{text:'Original text',editedAt:'2026-10-08T13:00:00Z'}]}],checklist:[{id:'check-a',text:'Example step',done:true}],comparables:[{id:'comp-a',address:'100 Synthetic Way',annualPsfUsd:12.5}],previousSqft:1234,previousOpex:4321};
-    const store:Store={version:2,transactions:[normalizeTransaction(t)],statuses:INITIAL_STATUSES,savedAt:'2026-10-08T15:00:00Z',settings:settings()};
+    const checklist = [{ id: 'check-a', text: 'Example step', done: true, completedAt: '2026-10-08T12:00:00Z', note: 'Example checklist note\nFollow-up detail' }];
+    const t={...transaction(),noteEntries:[{id:'note-a',text:'Edited note\n'+'A'.repeat(32000),createdAt:'2026-10-08T12:00:00Z',updatedAt:'2026-10-08T13:00:00Z',deletedAt:'2026-10-08T14:00:00Z',history:[{text:'Original text',editedAt:'2026-10-08T13:00:00Z'}]}],checklist,comparables:[{id:'comp-a',address:'100 Synthetic Way',annualPsfUsd:12.5}],previousSqft:1234,previousOpex:4321};
+    const store:Store={version:2,transactions:[normalizeTransaction(t)],statuses:INITIAL_STATUSES,savedAt:'2026-10-08T15:00:00Z',settings:{...settings(), checklistTemplate:['Example step', 'Follow up']}};
     const workbook=await fullWorkbook(store), read=new ExcelJS.Workbook();await read.xlsx.load(await workbook.xlsx.writeBuffer());
     let joined='';read.getWorksheet('Complete workspace JSON')!.eachRow((r,i)=>{if(i>1)joined+=r.getCell(2).value;});
     expect(JSON.parse(joined)).toEqual(store);expect(validateStore(JSON.parse(joined))).toBe(true);
     expect(read.getWorksheet('Notes')!.rowCount).toBe(3);expect(read.getWorksheet('Note history')!.getRow(2).getCell(5).value).toBe('Original text');
     expect(read.getWorksheet('Checklists')!.getRow(2).getCell(5).value).toBe(100);
+    expect(read.getWorksheet('Checklists')!.getRow(2).getCell(8).value).toBe(checklist[0].completedAt);
+    expect(read.getWorksheet('Checklists')!.getRow(2).getCell(9).value).toBe(checklist[0].note);
     expect(read.getWorksheet('Market comparables')!.getRow(2).getCell(5).value).toBe(10);
     expect(read.getWorksheet('BCA rules')!.rowCount).toBe(2);expect(read.getWorksheet('BCA calendars')!.rowCount).toBe(2);
     expect(notesText(t)).toContain('DELETED 2026-10-08T14:00:00Z');expect(notesText(t)).toContain('Original text');

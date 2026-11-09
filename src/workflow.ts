@@ -1,16 +1,21 @@
 import { dayNumber, today, validDate, type Store, type Transaction } from './model';
 export type NoteEntry = { id: string; text: string; createdAt: string | null; migratedAt?: string; updatedAt?: string; deletedAt?: string; reviewedAt?: string; reviewedVersion?: string; history: { text: string; editedAt: string }[] };
-export type ChecklistItem = { id: string; text: string; done: boolean; dueDate?: string; owner?: string; completedAt?: string };
+export type ChecklistItem = { id: string; text: string; done: boolean; dueDate?: string; owner?: string; completedAt?: string; note?: string };
 export type Comparable = { id: string; address: string; annualPsfUsd: number | null };
 export type BcaLevel = 'country' | 'region' | 'global' | 'corporate';
 export type BcaStage = 'regional' | 'gho';
 export type BcaRule = { id: string; level: BcaLevel; label: string; amountOperator: '<' | '<=' | '>' | '>='; amountEur: number; termOperator: '<=' | '>' | 'any'; termYears: number | null; approvers: string; submissionStage: BcaStage | '' };
 export type BcaCycle = { id: string; label: string; regional: string; regionalMeeting: string; gho: string; globalMeeting: string; note: string };
 export type BcaYear = { year: number; source: string; revision: string; routingConfirmed: boolean; routingPolicy: 'unique-match'; rules: BcaRule[]; cycles: BcaCycle[]; caveats: string };
-export type WorkspaceSettings = { usdToEur: number | null; bcaWarningDays: number; bcaYears: BcaYear[] };
+export type WorkspaceSettings = { usdToEur: number | null; bcaWarningDays: number; bcaYears: BcaYear[]; checklistTemplate?: string[] };
 export type BcaSelection = { year: number; level: BcaLevel | ''; stage: BcaStage | ''; cycleId: string; mode: 'manual' | 'rules'; decisionNote: string };
-export const defaultSettings = (): WorkspaceSettings => ({ usdToEur: null, bcaWarningDays: 30, bcaYears: [] });
-export const settingsOf = (s: Store): WorkspaceSettings => s.settings || defaultSettings();
+type ResolvedWorkspaceSettings = WorkspaceSettings & { checklistTemplate: string[] };
+export const CHECKLIST_NOTE_LIMIT = 30_000;
+export const defaultSettings = (): ResolvedWorkspaceSettings => ({ usdToEur: null, bcaWarningDays: 30, bcaYears: [], checklistTemplate: [] });
+export function settingsOf({ settings }: Store): ResolvedWorkspaceSettings {
+  if (!settings) return defaultSettings();
+  return { ...settings, checklistTemplate: settings.checklistTemplate ?? [] };
+}
 export const SQM_PER_SQFT = 0.09290304;
 export const squareMeters = (sqft: number) => sqft * SQM_PER_SQFT;
 export const perSquareMeter = (psf: number) => psf / SQM_PER_SQFT;
@@ -19,6 +24,21 @@ export function difference(current: number | null, previous: number | null) { re
 export function costs(t: Transaction) { const currentBase = t.currentPsf === null ? null : t.sqft * t.currentPsf, previousBase = t.previousPsf === null || t.previousSqft == null ? null : t.previousSqft * t.previousPsf; return { currentBase, previousBase, currentTotal: currentBase === null || t.opex === null ? null : currentBase + t.opex, previousTotal: previousBase === null || t.previousOpex == null ? null : previousBase + t.previousOpex }; }
 export const progressOf = (t: Transaction) => !t.checklist?.length ? null : Math.round(t.checklist.filter(x => x.done).length / t.checklist.length * 100);
 export const effectiveProgress = (t: Transaction) => progressOf(t) ?? 0;
+
+const checklistTitleKey = (title: string) => title.trim().toLowerCase();
+
+export function checklistFromTemplate(existing: ChecklistItem[], template: string[]): ChecklistItem[] {
+  const seen = new Set(existing.map(item => checklistTitleKey(item.text)));
+  const additions: ChecklistItem[] = [];
+  for (const title of template) {
+    const key = checklistTitleKey(title);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    additions.push({ id: crypto.randomUUID(), text: title.trim(), done: false });
+  }
+  return additions.length ? [...existing, ...additions] : existing;
+}
+
 export function entriesOf(t: Transaction): NoteEntry[] { return t.noteEntries ?? (t.notes ? [{ id: `legacy-${t.id}`, text: t.notes, createdAt: null, history: [] }] : []); }
 export function activeNotes(t: Transaction) { return entriesOf(t).filter(n => !n.deletedAt); }
 export function migrateStore(raw: Store, now = new Date().toISOString()): Store {
@@ -44,6 +64,12 @@ export function bcaFor(t: Transaction, settings: WorkspaceSettings, asOf = today
 export function validateSettings(value: unknown): value is WorkspaceSettings {
   if (!value || typeof value !== 'object') return false; const s = value as WorkspaceSettings;
   if (!(s.usdToEur === null || typeof s.usdToEur === 'number' && Number.isFinite(s.usdToEur) && s.usdToEur > 0) || !Number.isInteger(s.bcaWarningDays) || s.bcaWarningDays < 0 || s.bcaWarningDays > 365 || !Array.isArray(s.bcaYears)) return false;
+  const template = s.checklistTemplate;
+  if (template !== undefined && (
+    !Array.isArray(template) ||
+    Array.from(template).some(title => typeof title !== 'string' || !title.trim()) ||
+    new Set(template.map(checklistTitleKey)).size !== template.length
+  )) return false;
   const ids = (a: { id: string }[]) => a.every(x => x && typeof x === 'object' && typeof x.id === 'string' && !!x.id) && new Set(a.map(x => x.id)).size === a.length;
   if (s.bcaYears.some(y => !y || typeof y !== 'object')) return false;
   return new Set(s.bcaYears.map(y => y.year)).size === s.bcaYears.length && s.bcaYears.every(y => Number.isInteger(y.year) && y.year >= 1900 && y.year <= 2200 && typeof y.source === 'string' && typeof y.revision === 'string' && typeof y.caveats === 'string' && typeof y.routingConfirmed === 'boolean' && y.routingPolicy === 'unique-match' && Array.isArray(y.rules) && ids(y.rules) && y.rules.every(r => ['country','region','global','corporate'].includes(r.level) && typeof r.label === 'string' && typeof r.approvers === 'string' && ['<','<=','>','>='].includes(r.amountOperator) && Number.isFinite(r.amountEur) && r.amountEur >= 0 && ['<=','>','any'].includes(r.termOperator) && (r.termOperator === 'any' ? r.termYears === null : typeof r.termYears === 'number' && Number.isFinite(r.termYears) && r.termYears >= 0) && ['','regional','gho'].includes(r.submissionStage)) && Array.isArray(y.cycles) && ids(y.cycles) && y.cycles.every(c => typeof c.label === 'string' && typeof c.note === 'string' && ['regional','regionalMeeting','gho','globalMeeting'].every(k => { const d = c[k as keyof BcaCycle]; return typeof d === 'string' && (!d || validDate(d) && d.startsWith(String(y.year))); })));
@@ -52,7 +78,15 @@ export function extensionErrors(t: Transaction): string[] {
   const errors: string[] = [], timestamp = (s: unknown) => typeof s === 'string' && Number.isFinite(Date.parse(s)), unique = (rows: { id: string }[]) => rows.every(r => r && typeof r === 'object' && typeof r.id === 'string' && !!r.id) && new Set(rows.map(r => r.id)).size === rows.length;
   for (const key of ['previousSqft','previousOpex','commitmentUsd','termYears'] as const) if (t[key] !== undefined && t[key] !== null && !(Number.isFinite(t[key]) && t[key]! >= 0)) errors.push(`${key} must be nonnegative or unset.`);
   if (t.noteEntries !== undefined && (!Array.isArray(t.noteEntries) || !unique(t.noteEntries) || t.noteEntries.some(n => typeof n.text !== 'string' || n.text.length > 50000 || !(n.createdAt === null || timestamp(n.createdAt)) || n.migratedAt !== undefined && !timestamp(n.migratedAt) || n.updatedAt !== undefined && !timestamp(n.updatedAt) || n.deletedAt !== undefined && !timestamp(n.deletedAt) || n.reviewedAt !== undefined && !timestamp(n.reviewedAt) || n.reviewedVersion !== undefined && typeof n.reviewedVersion !== 'string' || !Array.isArray(n.history) || n.history.some(h => !h || typeof h !== 'object' || typeof h.text !== 'string' || !timestamp(h.editedAt))))) errors.push('Invalid note entries or timestamps.');
-  if (t.checklist !== undefined && (!Array.isArray(t.checklist) || !unique(t.checklist) || t.checklist.some(c => typeof c.text !== 'string' || !c.text.trim() || typeof c.done !== 'boolean' || c.dueDate !== undefined && (typeof c.dueDate !== 'string' || !!c.dueDate && !validDate(c.dueDate)) || c.owner !== undefined && typeof c.owner !== 'string' || c.completedAt !== undefined && !timestamp(c.completedAt)))) errors.push('Checklist items need text and a completion state.');
+  if (t.checklist !== undefined && (
+    !Array.isArray(t.checklist) || !unique(t.checklist) || t.checklist.some(item => (
+      typeof item.text !== 'string' || !item.text.trim() || typeof item.done !== 'boolean' ||
+      item.dueDate !== undefined && (typeof item.dueDate !== 'string' || !!item.dueDate && !validDate(item.dueDate)) ||
+      item.owner !== undefined && typeof item.owner !== 'string' ||
+      item.completedAt !== undefined && !timestamp(item.completedAt) ||
+      item.note !== undefined && (typeof item.note !== 'string' || item.note.length > CHECKLIST_NOTE_LIMIT)
+    ))
+  )) errors.push('Checklist items need valid text, a completion state, dates, and notes.');
   if (t.comparables !== undefined && (!Array.isArray(t.comparables) || !unique(t.comparables) || t.comparables.some(c => typeof c.address !== 'string' || !c.address.trim() || !(c.annualPsfUsd === null || Number.isFinite(c.annualPsfUsd) && c.annualPsfUsd >= 0)))) errors.push('Market properties need an address and a valid rate.');
   if (t.bcaSelection !== undefined && (!t.bcaSelection || typeof t.bcaSelection !== 'object' || !Number.isInteger(t.bcaSelection.year) || !['','country','region','global','corporate'].includes(t.bcaSelection.level) || !['','regional','gho'].includes(t.bcaSelection.stage) || !['manual','rules'].includes(t.bcaSelection.mode) || typeof t.bcaSelection.cycleId !== 'string' || typeof t.bcaSelection.decisionNote !== 'string')) errors.push('Invalid BCA selection.');
   return errors;
