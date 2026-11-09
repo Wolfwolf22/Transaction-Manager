@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { LayoutDashboard, Rows3, ChartGantt, CalendarClock, Settings2, Upload, Download, Menu, X, HardDrive, ListTodo, NotebookPen, FileText, ArrowUpRight } from 'lucide-react';
+import { LayoutDashboard, Rows3, ChartGantt, CalendarClock, Settings2, Upload, Download, Menu, X, HardDrive, ListTodo, NotebookPen, FileText } from 'lucide-react';
 import Dashboard from './Dashboard';
 import { Transactions } from './Transactions';
 import TransactionPage from './TransactionPage';
@@ -13,15 +13,26 @@ import { settingsOf, migrateStore, normalizeTransaction, type NoteEntry } from '
 import { actionQueue, dataMode, stamp } from './executive';
 import { persistWorkspace } from './persistence';
 
-const nav=[{id:'overview',title:'Overview',icon:LayoutDashboard},{id:'actions',title:'Action queue',icon:ListTodo},{id:'transactions',title:'Transactions',icon:Rows3},{id:'planner',title:'Planner',icon:ChartGantt},{id:'review',title:'Weekly review',icon:NotebookPen},{id:'report',title:'Weekly report',icon:FileText},{id:'bca',title:'BCA deadlines',icon:CalendarClock},{id:'settings',title:'Settings',icon:Settings2}];
+const nav=[{group:'Portfolio',id:'overview',title:'Overview',icon:LayoutDashboard},{id:'actions',title:'Action queue',icon:ListTodo},{id:'transactions',title:'Transactions',icon:Rows3},{id:'planner',title:'Planner',icon:ChartGantt},{group:'Review & approvals',id:'review',title:'Weekly review',icon:NotebookPen},{id:'report',title:'Weekly report',icon:FileText},{id:'bca',title:'BCA deadlines',icon:CalendarClock},{group:'Workspace',id:'settings',title:'Settings',icon:Settings2}];
 const routeFromHash=()=>location.hash.slice(1)||'overview';
 export default function App(){
  const [initial]=useState(loadStore),[store,setStore]=useState(initial.store),[recoveryError,setRecoveryError]=useState(initial.error),[route,setRoute]=useState(routeFromHash),[importing,setImporting]=useState(false),[menu,setMenu]=useState(false),[message,setMessage]=useState('');
- const current=useRef(store),dirty=useRef(false),routeRef=useRef(route),setDirty=useCallback((value:boolean)=>{dirty.current=value;},[]),settings=settingsOf(store);
+ const menuTrigger=useRef<HTMLButtonElement>(null),current=useRef(store),dirty=useRef(false),routeRef=useRef(route),setDirty=useCallback((value:boolean)=>{dirty.current=value;},[]),settings=settingsOf(store);
  useEffect(()=>{if(!message)return;const timer=setTimeout(()=>setMessage(''),7000);return()=>clearTimeout(timer);},[message]);
  useEffect(()=>{function hash(){const next=routeFromHash();if(next===routeRef.current)return;if(dirty.current&&!confirm('Leave this page? Unsaved transaction edits will be discarded; unfinished note drafts remain recoverable in this browser.')){history.replaceState(null,'',`#${routeRef.current}`);return;}dirty.current=false;routeRef.current=next;setRoute(next);window.scrollTo({top:0});}function unload(e:BeforeUnloadEvent){if(dirty.current){e.preventDefault();e.returnValue='';}}window.addEventListener('hashchange',hash);window.addEventListener('beforeunload',unload);return()=>{window.removeEventListener('hashchange',hash);window.removeEventListener('beforeunload',unload);};},[]);
  useEffect(()=>{function sync(e:StorageEvent){if(e.key===STORAGE_KEY&&e.newValue){try{const next:unknown=JSON.parse(e.newValue);if(!validateStore(next))throw new Error();const migrated=migrateStore(next);current.current=migrated;setStore(migrated);setMessage('Workspace updated from another tab. Reopen an open transaction before making further saves.');}catch{setRecoveryError('Changed browser storage could not be read. Export and restore a valid backup in Settings.');}}}window.addEventListener('storage',sync);return()=>window.removeEventListener('storage',sync);},[]);
- function go(next:string){if(next===route)return;if(dirty.current&&!confirm('Leave this page? Unsaved transaction edits will be discarded; unfinished note drafts remain recoverable in this browser.'))return;dirty.current=false;setMenu(false);location.hash=next;}
+ function closeMenu(){
+  setMenu(false);
+  menuTrigger.current?.focus();
+ }
+ useEffect(()=>{
+  if(!menu)return;
+  document.getElementById('close-navigation')?.focus();
+  function onEscape(event:KeyboardEvent){if(event.key==='Escape')closeMenu();}
+  window.addEventListener('keydown',onEscape);
+  return()=>window.removeEventListener('keydown',onEscape);
+ },[menu]);
+ function go(next:string){if(next===route){setMenu(false);return;}if(dirty.current&&!confirm('Leave this page? Unsaved transaction edits will be discarded; unfinished note drafts remain recoverable in this browser.'))return;dirty.current=false;setMenu(false);location.hash=next;}
  function persist(next:Store,recovery=false){
   if(recoveryError&&!recovery){setMessage('Saved data needs recovery in Settings before editing.');return false;}
   try{const updated=persistWorkspace(localStorage,current.current,next,recovery);current.current=updated;setStore(updated);setRecoveryError('');setMessage('Saved in this browser.');return true;}catch(e){setMessage(e instanceof Error?e.message:'Storage is blocked or full. Your unsaved changes remain on screen.');return false;}
@@ -30,7 +41,42 @@ export default function App(){
  function saveNotes(notes:NoteEntry[],original:Transaction){const s=current.current,existing=s.transactions.find(t=>t.id===original.id);if(!existing||JSON.stringify(existing)!==JSON.stringify(original)){setMessage('This record changed. Reopen it before saving the note. Your draft has been retained.');return undefined;}const next={...existing,noteEntries:notes};if(!persist({...s,transactions:s.transactions.map(t=>t.id===next.id?next:t)}))return undefined;return current.current.transactions.find(t=>t.id===next.id);}
  const [path,query]=route.split('?');let selectedId:string|null=null;try{selectedId=path.startsWith('transaction/')?decodeURIComponent(path.slice(12)):null;}catch{selectedId='invalid';}const selected=selectedId?store.transactions.find(t=>t.id===selectedId):undefined,section=new URLSearchParams(query).get('section')||undefined;
  const openTransaction=(t:Transaction,section?:string)=>go(`transaction/${encodeURIComponent(t.id)}${section?`?section=${section}`:''}`),attention=actionQueue(store,today()).filter(a=>a.days!==null&&a.days<=7||a.global).length,mode=dataMode(store);
- return <div className="app-shell"><a className="skip-link" href="#main-content" onClick={e=>{e.preventDefault();document.getElementById('main-content')?.focus();}}>Skip to content</a><aside className={`sidebar ${menu?'mobile-open':''}`}><div className="brand"><span className="dhl-wordmark">DHL</span><span className="brand-rule"/><span>REAL ESTATE</span><button className="icon-button mobile-only" aria-label="Close navigation" onClick={()=>setMenu(false)}><X size={20}/></button></div><div className="workspace-label">TRANSACTION MANAGER<span>United States portfolio</span></div><nav aria-label="Main navigation">{nav.map(({id,title,icon:Icon})=><button key={id} aria-current={path===id||id==='transactions'&&selectedId?'page':undefined} className={`nav-item ${path===id||id==='transactions'&&selectedId?'active':''}`} onClick={()=>go(id)}><Icon size={18}/><span>{title}</span>{id==='actions'&&attention>0&&<small>{attention}</small>}{id==='transactions'&&<small>{store.transactions.length}</small>}</button>)}</nav><div className="sidebar-bottom"><button className="sidebar-report" onClick={()=>go('report')}><FileText size={19}/><span>Weekly report<small>Hosted delivery pending</small></span><ArrowUpRight size={15}/></button><div className="profile"><span className="avatar">TM</span><span>Transaction Management<small>Corporate Real Estate</small></span></div></div></aside>{menu&&<button className="nav-backdrop" aria-label="Close navigation" onClick={()=>setMenu(false)}/>}<div className="main-shell"><header className="topbar"><button className="icon-button mobile-only" aria-label="Open navigation" onClick={()=>setMenu(true)}><Menu size={22}/></button><div className="breadcrumbs">Workspace<span>/</span><strong>{selectedId?'Transaction':nav.find(n=>n.id===path)?.title||'Overview'}</strong></div><div className="topbar-actions"><span className="local-indicator"><HardDrive size={14}/>Saved locally</span><button aria-label="Export all dashboard data" className="button secondary export-all" onClick={async()=>{try{await(await import('./workbook')).exportWorkbook(current.current);setMessage('Exported saved records, note history, review state, checklists and settings.');}catch{setMessage('Excel export failed. Use Settings to export a complete JSON backup.');}}}><Download size={16}/><span>Export all</span></button><button className="button primary" onClick={()=>setImporting(true)}><Upload size={16}/><span>Import transactions</span></button></div></header><main id="main-content" tabIndex={-1}><div className="workspace-source"><span className={`source-pill ${mode==='sample-only'?'sample':''}`}>{mode==='sample-only'?'SAMPLE WORKSPACE':mode==='mixed'?'MIXED WORKSPACE':mode==='empty'?'EMPTY WORKSPACE':'LOCAL WORKSPACE'}</span><span>{mode==='sample-only'?'Synthetic transactions for demonstration.':mode==='mixed'?'Contains user records and labeled synthetic samples.':'Records are held in this browser.'}</span><small>{store.savedAt?`Last saved ${stamp(store.savedAt)} ET`:'No saved changes yet'}</small></div>{recoveryError&&<div className="error-box" role="alert">{recoveryError}<button onClick={()=>go('settings')}>Open Settings</button></div>}
+ return <div className="app-shell">
+  <a className="skip-link" href="#main-content" onClick={e=>{e.preventDefault();document.getElementById('main-content')?.focus();}}>Skip to content</a>
+  <aside className={`sidebar ${menu?'mobile-open':''}`}>
+   <div className="brand">
+    <span className="brand-mark"><span className="dhl-wordmark">DHL</span></span>
+    <span className="brand-rule"/><span>REAL ESTATE</span>
+    <button id="close-navigation" className="icon-button mobile-only" aria-label="Close navigation" onClick={closeMenu}><X size={20}/></button>
+   </div>
+   <div className="workspace-label"><span>Transaction Manager</span>UNITED STATES PORTFOLIO</div>
+   <nav id="workspace-navigation" aria-label="Main navigation">
+    {nav.map(({group,id,title,icon:Icon})=>{
+     const active=path===id||id==='transactions'&&Boolean(selectedId);
+     return <div className="nav-entry" key={id}>
+      {group&&<div className="nav-group-label">{group}</div>}
+      <button aria-current={active?'page':undefined} className={`nav-item ${active?'active':''}`} onClick={()=>go(id)}>
+       <Icon size={17}/><span>{title}</span>
+       {id==='actions'&&attention>0&&<small>{attention}</small>}
+       {id==='transactions'&&<small>{store.transactions.length}</small>}
+      </button>
+     </div>;
+    })}
+   </nav>
+   <div className="sidebar-bottom"><div className="profile"><span className="avatar" aria-hidden="true">TM</span><span>Corporate Real Estate<small>Transaction Management</small></span></div></div>
+  </aside>
+  {menu&&<button className="nav-backdrop" aria-label="Close navigation" tabIndex={-1} onClick={closeMenu}/>}
+  <div className="main-shell">
+   <header className="topbar">
+    <button ref={menuTrigger} className="icon-button mobile-only" aria-label="Open navigation" aria-expanded={menu} aria-controls="workspace-navigation" onClick={()=>setMenu(true)}><Menu size={20}/></button>
+    <div className="breadcrumbs"><span>Workspace</span><span aria-hidden="true">/</span><strong>{selectedId?'Transaction':nav.find(n=>n.id===path)?.title||'Overview'}</strong></div>
+    <div className="topbar-actions">
+     <span className="local-indicator"><HardDrive size={14}/>Saved locally</span>
+     <button aria-label="Export all dashboard data" className="button secondary export-all" onClick={async()=>{try{await(await import('./workbook')).exportWorkbook(current.current);setMessage('Exported saved records, note history, review state, checklists and settings.');}catch{setMessage('Excel export failed. Use Settings to export a complete JSON backup.');}}}><Download size={16}/><span>Export all</span></button>
+     <button aria-label="Import transactions" className="button secondary import-all" onClick={()=>setImporting(true)}><Upload size={16}/><span>Import transactions</span></button>
+    </div>
+   </header>
+   <main id="main-content" tabIndex={-1}><div className="workspace-source"><span className={`source-pill ${mode==='sample-only'?'sample':''}`}>{mode==='sample-only'?'SAMPLE WORKSPACE':mode==='mixed'?'MIXED WORKSPACE':mode==='empty'?'EMPTY WORKSPACE':'LOCAL WORKSPACE'}</span><span>{mode==='sample-only'?'Synthetic transactions for demonstration.':mode==='mixed'?'Contains user records and labeled synthetic samples.':'Records are held in this browser.'}</span><small>{store.savedAt?`Last saved ${stamp(store.savedAt)} ET`:'No saved changes yet'}</small></div>{recoveryError&&<div className="error-box" role="alert">{recoveryError}<button onClick={()=>go('settings')}>Open Settings</button></div>}
  {selectedId?(selectedId==='new'||selected?<TransactionPage key={selectedId} section={section} transaction={selected} statuses={store.statuses} settings={settings} onSave={saveTransaction} onSaveNotes={saveNotes} onBack={()=>go('transactions')} onDirty={setDirty}/>:<div className="empty-state">This transaction is not in this browser’s workspace. Restore its backup in Settings or return to Transactions.</div>):<>{path==='overview'&&<Dashboard store={store} onOpen={openTransaction} onNavigate={go}/>} {path==='actions'&&<ActionQueue store={store} onOpen={openTransaction}/>} {path==='transactions'&&<Transactions transactions={store.transactions} settings={settings} statuses={store.statuses} onSelect={openTransaction} onNew={()=>go('transaction/new')}/>} {path==='planner'&&<Planning transactions={store.transactions} settings={settings} onSave={saveTransaction} onSelect={openTransaction}/>} {path==='review'&&<WeeklyReview store={store} onSaveNotes={saveNotes} onOpen={openTransaction}/>} {path==='report'&&<ReportPreview store={store}/>} {path==='bca'&&<BcaDeadlines transactions={store.transactions} settings={settings} onSelect={openTransaction}/>} {path==='settings'&&<Settings onDirty={setDirty} store={store} onChange={persist} recoveryError={recoveryError}/>}</>}
  <footer className="app-footer"><span>DHL · Corporate Real Estate</span><span>Transaction Manager / Revision 3</span></footer></main></div>{importing&&<ImportTransactions statuses={store.statuses} onClose={()=>setImporting(false)} onImport={items=>{const s=current.current,migrated=migrateStore({version:1,transactions:items,statuses:s.statuses,savedAt:''});const ok=persist({...s,transactions:[...s.transactions,...migrated.transactions]});if(ok)go('transactions');return ok;}}/>}{message&&<div className="toast" role="status">{message}</div>}</div>;
 }
